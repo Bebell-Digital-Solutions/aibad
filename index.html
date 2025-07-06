@@ -28,7 +28,6 @@
       body {
         font-family: 'Poppins', sans-serif;
       }
-      /* Loading animation for bot message placeholders */
       @keyframes loading-anim {
           0% { background-position: -800px 0; }
           100% { background-position: 800px 0; }
@@ -43,7 +42,6 @@
           background-size: 800px 100%;
           animation: loading-anim 3s linear infinite;
       }
-      /* Markdown content styling */
       .markdown-content p { margin-bottom: 1rem; }
       .markdown-content ul, .markdown-content ol { margin-left: 1.5rem; margin-bottom: 1rem; list-style: revert; }
       .markdown-content h1, .markdown-content h2, .markdown-content h3 { font-weight: 600; margin-bottom: 0.5rem; margin-top: 1.5rem; }
@@ -85,13 +83,11 @@
     import ReactMarkdown from 'react-markdown';
     import remarkGfm from 'remark-gfm';
 
-    // --- TYPES ---
     const MessageSender = {
       USER: 'user',
       BOT: 'bot',
     };
 
-    // --- CONSTANTS ---
     const SUGGESTIONS = [
         { text: "Outline a digital marketing strategy for a new e-commerce store.", icon: "store" },
         { text: "What are the key elements of a successful SaaS landing page?", icon: "web" },
@@ -104,27 +100,21 @@
     const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
     const DEEPSEEK_MODEL = 'deepseek-chat';
 
-    // --- DEEPSEEK SERVICE ---
-    let apiKey = null;
-
     const initializeDeepSeekService = (key) => {
-        if (!key) throw new Error("Initialization failed: API key is missing.");
-        apiKey = key;
+        if (!key) throw new Error("API key is required");
+        localStorage.setItem('deepseek-api-key', key);
+        return key;
     };
 
-    const sendMessageToDeepSeek = async (message, fileContext, history) => {
-        if (!apiKey) throw new Error("DeepSeek service is not initialized.");
+    const sendMessageToDeepSeek = async (message, fileContext, history, apiKey) => {
+        const fullPrompt = fileContext 
+            ? `File Context:\n${fileContext}\n\nUser Question: ${message}`
+            : message;
 
-        let fullPrompt = message;
-        if (fileContext) {
-            fullPrompt = `Please use the following context from user-uploaded files to inform your answer.\n---\nSTART OF FILE CONTEXT\n${fileContext}\nEND OF FILE CONTEXT\n---\nUser Prompt: ${message}`;
-        }
-
-        // Prepare messages array with history
         const messages = [
             { role: 'system', content: MASTER_PROMPT },
-            ...history.map(msg => ({
-                role: msg.sender === MessageSender.USER ? 'user' : 'assistant',
+            ...history.filter(msg => msg.sender !== 'bot' || msg.text).map(msg => ({
+                role: msg.sender === 'user' ? 'user' : 'assistant',
                 content: msg.text
             })),
             { role: 'user', content: fullPrompt }
@@ -134,24 +124,25 @@
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream'
             },
             body: JSON.stringify({
                 model: DEEPSEEK_MODEL,
                 messages: messages,
-                stream: true
+                stream: true,
+                temperature: 0.7
             })
         });
 
         if (!response.ok) {
-            const errorBody = await response.text();
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorBody}`);
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error?.message || 'API request failed');
         }
 
-        return response.body;
+        return response;
     };
 
-    // --- HOOKS ---
     const useTheme = () => {
         const [theme, setTheme] = useState(() => {
             const savedTheme = localStorage.getItem("mega-bot-theme");
@@ -172,19 +163,18 @@
         return [theme, toggleTheme];
     };
 
-    // --- ICONS ---
     const BotIcon = () => (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-brand-pink">
             <path fillRule="evenodd" d="M4.5 3.75a3 3 0 0 0-3 3v10.5a3 3 0 0 0 3 3h15a3 3 0 0 0 3-3V6.75a3 3 0 0 0-3-3h-15Zm4.125 3.375a.75.75 0 0 0 0 1.5h6.75a.75.75 0 0 0 0-1.5h-6.75Zm0 3.75a.75.75 0 0 0 0 1.5h6.75a.75.75 0 0 0 0-1.5h-6.75Zm-2.625 3.375a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm12 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" clipRule="evenodd" />
         </svg>
     );
+
     const UserIcon = () => (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-gray-500 dark:text-gray-400">
             <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clipRule="evenodd" />
         </svg>
     );
 
-    // --- COMMON COMPONENTS ---
     const LoadingIndicator = () => (
         <div className="flex flex-col gap-2 w-full">
             <div className="loading-bar-anim h-3 rounded-sm w-full"></div>
@@ -205,8 +195,7 @@
         </button>
     );
     
-    // --- FEATURE COMPONENTS ---
-     const ApiKeyModal = ({ onSave, onDelete, onClose, currentKey }) => {
+    const ApiKeyModal = ({ onSave, onDelete, onClose, currentKey }) => {
         const [key, setKey] = useState(currentKey || '');
         
         const handleSubmit = (e) => {
@@ -456,37 +445,19 @@
         );
     };
 
-    // --- MAIN APP COMPONENT ---
     const App = () => {
         const [theme, toggleTheme] = useTheme();
         const [messages, setMessages] = useState([]);
         const [isLoading, setIsLoading] = useState(false);
         const [isFileModalOpen, setFileModalOpen] = useState(false);
         const [uploadedFiles, setUploadedFiles] = useState([]);
-        const [apiKey, setApiKey] = useState(null);
-        const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-
-        useEffect(() => {
-            const savedKey = localStorage.getItem('deepseek-api-key');
-            if (savedKey) {
-                try {
-                  initializeDeepSeekService(savedKey);
-                  setApiKey(savedKey);
-                } catch(e) {
-                  console.error("Failed to initialize with saved key", e);
-                  localStorage.removeItem('deepseek-api-key');
-                  setShowApiKeyModal(true);
-                }
-            } else {
-                setShowApiKeyModal(true);
-            }
-        }, []);
+        const [apiKey, setApiKey] = useState(localStorage.getItem('deepseek-api-key') || null);
+        const [showApiKeyModal, setShowApiKeyModal] = useState(!apiKey);
 
         const handleSaveApiKey = useCallback((key) => {
             try {
                 initializeDeepSeekService(key);
                 setApiKey(key);
-                localStorage.setItem('deepseek-api-key', key);
                 setShowApiKeyModal(false);
             } catch (e) {
                 console.error("Failed to initialize on save", e);
@@ -496,74 +467,73 @@
         const handleDeleteApiKey = useCallback(() => {
             localStorage.removeItem('deepseek-api-key');
             setApiKey(null);
+            setShowApiKeyModal(true);
         }, []);
 
         const handleSendMessage = useCallback(async (inputText) => {
-            if (isLoading || !inputText.trim()) return;
-            if (!apiKey) {
-                setShowApiKeyModal(true);
-                return;
-            }
-
-            setIsLoading(true);
-            const userMessage = { id: `user-${Date.now()}`, sender: MessageSender.USER, text: inputText };
-            const botPlaceholder = { id: `bot-${Date.now()}`, sender: MessageSender.BOT, text: '', isError: false };
-            setMessages(prev => [...prev, userMessage, botPlaceholder]);
+            if (!inputText.trim() || isLoading || !apiKey) return;
             
-            const fileContext = uploadedFiles.map(f => `File: ${f.name}\nContent:\n${f.content}`).join('\n\n');
-
+            setIsLoading(true);
+            const userMessage = { id: Date.now(), sender: 'user', text: inputText };
+            const botMessage = { id: Date.now() + 1, sender: 'bot', text: '', isError: false };
+            
+            setMessages(prev => [...prev, userMessage, botMessage]);
+            
             try {
-                const history = [...messages, userMessage];
-                const responseStream = await sendMessageToDeepSeek(inputText, fileContext, history);
-                const reader = responseStream.getReader();
-                const decoder = new TextDecoder();
-                let fullResponse = "";
-                let buffer = "";
+                const fileContext = uploadedFiles.map(f => `${f.name}:\n${f.content}`).join('\n\n');
+                const response = await sendMessageToDeepSeek(inputText, fileContext, messages, apiKey);
                 
+                if (!response.body) {
+                    throw new Error('No response body');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+                let buffer = '';
+
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    
+
                     buffer += decoder.decode(value, { stream: true });
-                    const parts = buffer.split('\n\n');
-                    buffer = parts.pop() || '';
-                    
-                    for (const part of parts) {
-                        if (part.startsWith('data: ')) {
-                            const dataStr = part.slice(6).trim();
-                            if (dataStr === '[DONE]') break;
-                            
+                    const chunks = buffer.split('\n\n');
+                    buffer = chunks.pop() || '';
+
+                    for (const chunk of chunks) {
+                        if (chunk.startsWith('data:') && !chunk.includes('[DONE]')) {
                             try {
-                                const data = JSON.parse(dataStr);
-                                const token = data.choices[0]?.delta?.content || '';
-                                fullResponse += token;
-                                setMessages(prev => prev.map(m => 
-                                    m.id === botPlaceholder.id 
-                                        ? { ...m, text: fullResponse } 
-                                        : m
+                                const data = JSON.parse(chunk.replace('data:','').trim());
+                                const content = data.choices[0]?.delta?.content || '';
+                                fullResponse += content;
+                                setMessages(prev => prev.map(msg => 
+                                    msg.id === botMessage.id 
+                                        ? { ...msg, text: fullResponse } 
+                                        : msg
                                 ));
                             } catch (e) {
-                                console.error('Error parsing stream data', e);
+                                console.error('Error parsing chunk:', e);
                             }
                         }
                     }
                 }
             } catch (error) {
-                console.error("Error sending message:", error);
-                let errorMessage = "Sorry, an unexpected error occurred. Please try again.";
-                if (error?.message?.includes('401') || error?.toString()?.includes('Unauthorized')) {
-                    errorMessage = "Your API key appears to be invalid. Please update it to continue.";
+                console.error('API Error:', error);
+                setMessages(prev => prev.map(msg => 
+                    msg.id === botMessage.id 
+                        ? { ...msg, text: `Error: ${error.message}`, isError: true } 
+                        : msg
+                ));
+                if (error.message.includes('401')) {
                     handleDeleteApiKey();
-                    setTimeout(() => setShowApiKeyModal(true), 1000);
                 }
-                setMessages(prev => prev.map(m => m.id === botPlaceholder.id ? { ...m, text: errorMessage, isError: true } : m));
             } finally {
                 setIsLoading(false);
             }
-        }, [isLoading, uploadedFiles, apiKey, messages, handleDeleteApiKey]);
-        
+        }, [apiKey, isLoading, messages, uploadedFiles, handleDeleteApiKey]);
+
         const handleDeleteChat = useCallback(() => {
-            if (messages.length > 0 && window.confirm("Are you sure you want to delete the chat history? This will start a new conversation.")) {
+            if (messages.length > 0 && window.confirm("Are you sure you want to delete the chat history?")) {
                 setMessages([]);
                 setUploadedFiles([]);
             }
@@ -608,7 +578,6 @@
         );
     };
 
-    // --- RENDER THE APP ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<React.StrictMode><App /></React.StrictMode>);
   </script>
